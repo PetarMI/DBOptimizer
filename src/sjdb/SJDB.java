@@ -29,7 +29,7 @@ public class SJDB {
 		// create estimator visitor and apply it to canonical plan
 		Estimator est = new Estimator();
 		plan.accept(est);
-		System.out.println(plan.getOutput().getTupleCount());
+		System.out.println(plan.getOutput().getAttributes());
 		// create optimised plan
 		//Optimiser opt = new Optimiser(cat);
 		//Operator optPlan = opt.optimise(plan);

@@ -29,6 +29,20 @@ public class Estimator implements PlanVisitor {
 	}
 
 	public void visit(Project op) {
+		Relation input = op.getInput().getOutput();
+		Relation output = new Relation(input.getTupleCount());
+		
+		List<Attribute> attributesToRetain = op.getAttributes();
+		
+		Iterator<Attribute> iter = input.getAttributes().iterator();
+		while (iter.hasNext()) {
+			Attribute attr = iter.next();
+			if (attributesToRetain.contains(attr)) {
+				output.addAttribute(attr);
+			}
+		}
+		
+		op.setOutput(output);
 	}
 	
 	public void visit(Select op) {
