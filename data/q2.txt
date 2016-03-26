@@ -1,3 +1,3 @@
-SELECT persname
+SELECT *
 FROM Person
-WHERE age="35"
+WHERE p="35"

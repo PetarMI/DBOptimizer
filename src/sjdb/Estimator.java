@@ -46,6 +46,48 @@ public class Estimator implements PlanVisitor {
 	}
 	
 	public void visit(Select op) {
+		Relation input = op.getInput().getOutput();
+		Predicate predicate = op.getPredicate();
+		Attribute leftAttr = input.getAttribute(predicate.getLeftAttribute());
+		
+		if (predicate.equalsValue()) {
+			int size = input.getTupleCount() / leftAttr.getValueCount();
+			Relation output = new Relation(size);
+			
+			Iterator<Attribute> iter = input.getAttributes().iterator();
+			while (iter.hasNext()) {
+				Attribute attr = iter.next();
+				if (!attr.equals(leftAttr)) {
+					output.addAttribute(new Attribute(attr));
+				}
+				else {
+					output.addAttribute(new Attribute(attr.getName(), 1));
+				}
+			}
+			
+			op.setOutput(output);
+		}
+		else {
+			Attribute rightAttr = input.getAttribute(predicate.getRightAttribute());
+			int size = input.getTupleCount() / Math.max(leftAttr.getValueCount(), rightAttr.getValueCount());
+			Relation output = new Relation(size);
+			
+			int valueCount = Math.min(leftAttr.getValueCount(), rightAttr.getValueCount());
+			
+			Iterator<Attribute> iter = input.getAttributes().iterator();
+			while (iter.hasNext()) {
+				Attribute attr = iter.next();
+				if (!attr.equals(leftAttr) && !attr.equals(rightAttr)) {
+					output.addAttribute(new Attribute(attr));
+				}
+				else {
+					output.addAttribute(new Attribute(attr.getName(), valueCount));
+				}
+			}
+			
+			op.setOutput(output);
+		}
+		
 	}
 	
 	public void visit(Product op) {
@@ -69,5 +111,34 @@ public class Estimator implements PlanVisitor {
 	}
 	
 	public void visit(Join op) {
+		Relation leftInput = op.getLeft().getOutput();
+		Relation rightInput = op.getRight().getOutput();
+		Attribute leftAttr = op.getPredicate().getLeftAttribute();
+		Attribute rightAttr = op.getPredicate().getRightAttribute();
+		
+		int size = (leftInput.getTupleCount() * rightInput.getTupleCount()) /
+				Math.max(leftAttr.getValueCount(), rightAttr.getValueCount());
+		Relation output = new Relation(size);
+		
+		int attrValueCount = Math.min(leftAttr.getValueCount(), rightAttr.getValueCount());
+		
+		addRelationAttributes(leftInput, output, leftAttr, attrValueCount);
+		addRelationAttributes(rightInput, output, rightAttr, attrValueCount);
+		
+		op.setOutput(output);
+	}
+	
+	private void addRelationAttributes(Relation input, Relation output, Attribute joinAttr, int valueCount) {
+		Iterator<Attribute> iter = input.getAttributes().iterator();
+		
+		while (iter.hasNext()) {
+			Attribute attr = iter.next();
+			if (!attr.equals(joinAttr)) {
+				output.addAttribute(new Attribute(attr));
+			}
+			else {
+				output.addAttribute(new Attribute(attr.getName(), valueCount));
+			}
+		}
 	}
 }
