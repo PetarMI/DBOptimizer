@@ -1,3 +1,3 @@
 SELECT *
 FROM Person
-WHERE p="35"
+WHERE age="35"

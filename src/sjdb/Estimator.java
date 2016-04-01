@@ -113,8 +113,8 @@ public class Estimator implements PlanVisitor {
 	public void visit(Join op) {
 		Relation leftInput = op.getLeft().getOutput();
 		Relation rightInput = op.getRight().getOutput();
-		Attribute leftAttr = op.getPredicate().getLeftAttribute();
-		Attribute rightAttr = op.getPredicate().getRightAttribute();
+		Attribute leftAttr = leftInput.getAttribute(op.getPredicate().getLeftAttribute());
+		Attribute rightAttr = rightInput.getAttribute(op.getPredicate().getRightAttribute());
 		
 		int size = (leftInput.getTupleCount() * rightInput.getTupleCount()) /
 				Math.max(leftAttr.getValueCount(), rightAttr.getValueCount());

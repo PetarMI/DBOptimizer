@@ -1,0 +1,22 @@
+SELECT * 
+FROM Lecturer
+
+SELECT * 
+FROM Module
+WHERE deptid="ECS"
+
+SELECT name, age 
+FROM Lecturer, Module
+WHERE lid=lectid
+
+SELECT mid, name
+FROM Lecturer, Module
+WHERE lid=lectid, deptid="ECS"
+
+SELECT name, mid, core
+FROM Lecturer, Module, Coursework
+WHERE lid=lectid, mid=modid, dept="ECS"
+
+SELECT name, mid, core
+FROM Lecturer, Module, Coursework
+WHERE lid=lectid, avgscore="65", dept="ECS"

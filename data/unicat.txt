@@ -1,0 +1,4 @@
+Lecturer:450:lid,450:name,420:dept,12:age,26
+Department:12:did,12:deptname,12:head,10
+Module:3000:mid,3000:lectid,400:deptid,12:core,2
+Coursework:4000:cid,4000:modid,2500:avgscore,22
