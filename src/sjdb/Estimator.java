@@ -113,8 +113,8 @@ public class Estimator implements PlanVisitor {
 	public void visit(Join op) {
 		Relation leftInput = op.getLeft().getOutput();
 		Relation rightInput = op.getRight().getOutput();
-		Attribute leftAttr = leftInput.getAttribute(op.getPredicate().getLeftAttribute());
-		Attribute rightAttr = rightInput.getAttribute(op.getPredicate().getRightAttribute());
+		Attribute leftAttr = this.locateLeftJoinAttributes(op); 
+		Attribute rightAttr = this.locateRightJoinAttributes(op); 
 		
 		int size = (leftInput.getTupleCount() * rightInput.getTupleCount()) /
 				Math.max(leftAttr.getValueCount(), rightAttr.getValueCount());
@@ -139,6 +139,30 @@ public class Estimator implements PlanVisitor {
 			else {
 				output.addAttribute(new Attribute(attr.getName(), valueCount));
 			}
+		}
+	}
+	
+	private Attribute locateLeftJoinAttributes(Join op) {
+		Relation leftInput = op.getLeft().getOutput();
+		Relation rightInput = op.getRight().getOutput();
+		
+		if (leftInput.getAttributes().contains(op.getPredicate().getLeftAttribute())) {
+			return leftInput.getAttribute(op.getPredicate().getLeftAttribute());
+		}
+		else {
+			return rightInput.getAttribute(op.getPredicate().getLeftAttribute());
+		}
+	}
+	
+	private Attribute locateRightJoinAttributes(Join op) {
+		Relation leftInput = op.getLeft().getOutput();
+		Relation rightInput = op.getRight().getOutput();
+		
+		if (rightInput.getAttributes().contains(op.getPredicate().getRightAttribute())) {
+			return rightInput.getAttribute(op.getPredicate().getRightAttribute());
+		}
+		else {
+			return leftInput.getAttribute(op.getPredicate().getRightAttribute());
 		}
 	}
 }

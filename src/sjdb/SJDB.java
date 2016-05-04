@@ -32,14 +32,12 @@ public class SJDB {
 		Relation output = plan.getOutput();
 		System.out.println(output.getTupleCount());
 		System.out.println(output.getAttributes());
-		/*for (int i = 0; i < output.getAttributes().size(); i++) {
-			System.out.println(output.getAttributes().get(i).getValueCount());
-		}*/
 		
 		//create optimised plan
 		Optimiser opt = new Optimiser(cat);
 		Operator optPlan = opt.optimise(plan);
 		
+		//print optimised plan stats
 		System.out.println("\nOptimised plan");
 		System.out.println(optPlan.toString());
 		optPlan.accept(est);

@@ -14,8 +14,8 @@ FROM Lecturer, Module
 WHERE lid=lectid, deptid="ECS"
 
 SELECT name, mid, core
-FROM Lecturer, Module, Coursework
-WHERE lid=lectid, mid=modid, dept="ECS"
+FROM Coursework, Module, Lecturer, Department
+WHERE lid=lectid, mid=modid, dept="ECS", head=lid
 
 SELECT name, mid, core
 FROM Lecturer, Module, Coursework

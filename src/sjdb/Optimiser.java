@@ -1,9 +1,10 @@
 package sjdb;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 public class Optimiser {
 	
@@ -11,19 +12,43 @@ public class Optimiser {
 	private Estimator estimator;
 	private Operator revisedPlan; 
 	private List<Select> selectOps;
+	private List<Operator> subtreeList;
+	private boolean reorderDeepest;
+	private List<Attribute> reorderedAttrs;
 	
 	public Optimiser(Catalogue cat) {
 		this.catalogue = cat;
 		this.estimator = new Estimator();
 		this.revisedPlan = null;
 		this.selectOps = new ArrayList<Select>();
+		this.subtreeList = new ArrayList<Operator>();
+		this.reorderDeepest = true;
+		this.reorderedAttrs = new ArrayList<Attribute>();
 	}
 	
+	/**
+	 * Main function that optimises a plan
+	 * @param canonicalPlan
+	 * @return the optimised plan
+	 */
 	public Operator optimise(Operator canonicalPlan) {
 		this.revisedPlan = this.copyCanonicalPlan(canonicalPlan);
+		
+		// 1) move selects down
 		this.revisedPlan = this.moveSelects(revisedPlan);
 		this.selectOps.clear();
-		//this.revisedPlan = this.makeJoins(revisedPlan);
+		
+		// 2) reorder the join by placing the most restricting scans first
+		this.revisedPlan = this.reorderJoins(revisedPlan);
+		
+		//move selects down again because reordering may have pushed them up
+		this.revisedPlan = this.moveSelects(revisedPlan);
+		this.selectOps.clear();
+		
+		// 3) create joins
+		this.revisedPlan = this.makeJoins(revisedPlan, new ArrayList<Select>());
+		
+		// 4) move projects down
 		if (this.performMoveProjects(revisedPlan)) {
 			this.revisedPlan = this.moveProjects(revisedPlan, new ArrayList<Attribute>());	
 		}
@@ -52,11 +77,11 @@ public class Optimiser {
 			
 			Operator revisedPlan = moveSelects(opCast.getInput());
 			
-			//select wasn't moved down
+			//select was moved down
 			if (!this.selectOps.contains(opCast)) {
 				return revisedPlan;
 			}
-			//the select has been moved down
+			//the select hasn't been moved down
 			else {
 				return new Select(revisedPlan, opCast.getPredicate());
 			}
@@ -93,11 +118,11 @@ public class Optimiser {
 	/**
 	 * Main JOIN creating function
 	 */
-	private Operator makeJoins(Operator plan) {
+	private Operator makeJoins(Operator plan, List<Select> selects) {
 		if (plan instanceof Project) {
 			Project opCast = (Project) plan;
 			
-			Operator revisedPlan = makeJoins(opCast.getInput());
+			Operator revisedPlan = makeJoins(opCast.getInput(), selects);
 			return new Project(revisedPlan, opCast.getAttributes());
 		}
 		else if (plan instanceof Select) {
@@ -105,11 +130,11 @@ public class Optimiser {
 			Operator revisedPlan;
 			
 			if (!opCast.getPredicate().equalsValue()) {
-				selectOps.add(opCast);
-				revisedPlan = makeJoins(opCast.getInput());
+				selects.add(opCast);
+				revisedPlan = makeJoins(opCast.getInput(), selects);
 				
 				//the select hasn't been combined into a JOIN
-				if (this.selectOps.contains(opCast)) {
+				if (selects.contains(opCast)) {
 					return new Select(revisedPlan, opCast.getPredicate());
 				}
 				//the select has been used for creating a JOIN
@@ -118,17 +143,17 @@ public class Optimiser {
 				}
 			}
 			else {
-				revisedPlan = makeJoins(opCast.getInput());
+				revisedPlan = makeJoins(opCast.getInput(), selects);
 				return new Select(revisedPlan, opCast.getPredicate());
 			}
 			
 		}
 		else if (plan instanceof Product) {
 			Product opCast = (Product) plan;
-			Predicate predicate = getJoinPredicate(opCast, this.selectOps);
+			Predicate predicate = getJoinPredicate(opCast, selects);
 			
-			Operator leftRevised = makeJoins(opCast.getLeft());
-			Operator rightRevised = makeJoins(opCast.getRight());
+			Operator leftRevised = makeJoins(opCast.getLeft(), new ArrayList<Select>());
+			Operator rightRevised = makeJoins(opCast.getRight(), new ArrayList<Select>());
 			
 			if (predicate != null) {
 				return new Join(leftRevised, rightRevised, predicate);
@@ -138,7 +163,7 @@ public class Optimiser {
 			}
 			
 		}
-		//it is a ...
+		//it is a scan
 		else {
 			return plan;
 		}
@@ -167,9 +192,18 @@ public class Optimiser {
 			return appendProject(revisedPlan, parentAttrs);
 			
 		}
-		/*else if (plan instanceof Join) {
+		else if (plan instanceof Join) {
+			Join opCast = (Join) plan;
+			List<Attribute> curLevelAttrs = this.addPredicateAttributes(opCast, parentAttrs);
 			
-		}*/
+			Operator leftRevised = moveProjects(opCast.getLeft(), curLevelAttrs);
+			Operator rightRevised = moveProjects(opCast.getRight(), curLevelAttrs);
+			
+			Operator revisedPlan = new Join(leftRevised, rightRevised, opCast.getPredicate());
+			revisedPlan.accept(this.estimator);
+			
+			return appendProject(revisedPlan, parentAttrs);
+		}
 		else if (plan instanceof Product) {
 			Product opCast = (Product) plan;
 			Operator leftRevised = moveProjects(opCast.getLeft(), parentAttrs);
@@ -184,6 +218,91 @@ public class Optimiser {
 		else {
 			Scan opCast = (Scan) plan;
 			return appendProject(opCast, parentAttrs);
+		}
+	}
+	
+	/**
+	 * Main JOIN reordering function
+	 */
+	private Operator reorderJoins(Operator plan) {
+		if (plan instanceof Project) {
+			Project opCast = (Project) plan;
+			
+			Operator revisedPlan = reorderJoins(opCast.getInput());
+			return new Project(revisedPlan, opCast.getAttributes());
+		}
+		else if(plan instanceof Select) {
+			Select opCast = (Select) plan;
+			
+			Operator revisedPlan = reorderJoins(opCast.getInput());
+			
+			//check if select should be moved up due to join reordering
+			if (this.reorderedAttrs.contains(opCast.getPredicate().getLeftAttribute())) {
+				this.selectOps.add(opCast);
+				return revisedPlan;
+			}
+			
+			//check the right attribute
+			if (!opCast.getPredicate().equalsValue() && 
+					this.reorderedAttrs.contains(opCast.getPredicate().getRightAttribute())) {
+				this.selectOps.add(opCast);
+				return revisedPlan;
+			}
+			
+			return new Select(revisedPlan, opCast.getPredicate());
+		}
+		else if(plan instanceof Scan) {
+			return plan;
+		}
+		else {
+			Product opCast = (Product) plan;
+			
+			//save right tree
+			Operator rightTree = opCast.getRight();
+			rightTree.accept(this.estimator);
+			this.subtreeList.add(rightTree);
+			
+			//reorder left tree
+			Operator leftTree = opCast.getLeft();
+			Operator revisedLeftPlan = reorderJoins(leftTree);
+			revisedLeftPlan.accept(this.estimator);
+			
+			Operator revisedLeft = revisedLeftPlan;
+			
+			//check if left tree can be reordered
+			if (this.reorderDeepest) {
+				Operator mostRestrictingLeft = findMostRestrictingLeft(revisedLeftPlan.getOutput().getTupleCount());
+				
+				if (mostRestrictingLeft != null) {
+					this.subtreeList.add(revisedLeftPlan);
+					revisedLeft = mostRestrictingLeft;
+					// find the attributes of the reordered subtree so we move up the selects
+					List<Attribute> leftAttrs = findReorderedAttrs(revisedLeftPlan);
+					this.reorderedAttrs.addAll(leftAttrs);
+				}
+				this.reorderDeepest = false;
+			}
+			
+			//check if right tree can be reordered
+			Operator mostRestrictingRight = null;
+			//if it doesn't contain it it has been put somewhere down the tree
+			if (!this.subtreeList.contains(rightTree)) {
+				mostRestrictingRight = findMostRestrictingRight(Integer.MAX_VALUE);
+			}
+			else {
+				mostRestrictingRight = findMostRestrictingRight(rightTree.getOutput().getTupleCount());
+			}
+
+			if (mostRestrictingRight == null) {
+				this.subtreeList.remove(rightTree);
+				return new Product(revisedLeft, rightTree);
+			}
+			else {
+				// find the attributes of the reordered subtree so we move up the selects
+				List<Attribute> rightAttrs = findReorderedAttrs(rightTree);
+				this.reorderedAttrs.addAll(rightAttrs);
+				return new Product (revisedLeft, mostRestrictingRight);
+			}
 		}
 	}
 	
@@ -293,18 +412,45 @@ public class Optimiser {
 		return relationAttrs.containsAll(predicateAttrs);
 	}
 	
+	/**
+	 * Function that chooses which select to combine with a product
+	 * in order to from a join
+	 */
 	private Predicate getJoinPredicate(Product product, List<Select> selects) {
-		List<Select> validSelects = getProductSelects(product, selects);
+		//List<Select> validSelects = getProductSelects(product, selects);
+		Map<Select, Select> potentialSelects = new HashMap<Select, Select>();
 		Predicate predicate = null;
 		
 		//Sanity check
-		if (validSelects.size() > 1) {
+		/*if (validSelects.size() > 1) {
 			System.out.println("The number of selects for a given cartesian product is larger than one");
-		}
+		}*/
 		
-		//get a select to use for the join at random
-		if (!validSelects.isEmpty()) {
-			predicate = validSelects.get(0).getPredicate();
+		//get the most restricting select to combine
+		if (!selects.isEmpty()) {
+			for (int i = 0; i < selects.size(); i++) {
+				Select curSelect = selects.get(i);
+				//make sure predicate has two attributes and can be used for a join
+				if (!curSelect.getPredicate().equalsValue()) {
+					Select temp = new Select(product, curSelect.getPredicate());
+					temp.accept(this.estimator);
+					potentialSelects.put(curSelect, temp);
+				}
+			}
+			
+			int minCost = Integer.MAX_VALUE;
+			Select restrSelect = null;
+			//find the most restrictive select from the map
+			for (Map.Entry<Select, Select> entry : potentialSelects.entrySet())
+			{
+			    if (entry.getValue().getOutput().getTupleCount() < minCost) {
+			    	minCost = entry.getValue().getOutput().getTupleCount();
+			    	restrSelect = entry.getKey();
+			    }
+			}
+			
+			predicate = restrSelect.getPredicate();
+			selects.remove(restrSelect);
 			
 			//Sanity check
 			if (predicate.equalsValue()) {
@@ -399,6 +545,64 @@ public class Optimiser {
 		}
 		else {
 			return false;
+		}
+	}
+	
+	// Join reordering functions
+	/**
+	 * 
+	 * @param op The operator that is currently the leftmost deep and most restricting
+	 * @return the most restricting operator that will become the leftmost deepest
+	 */
+	private Operator findMostRestrictingLeft (int op) {
+		return findMostRestricting(op, 1);
+	}
+	
+	/**
+	 * 
+	 * @param op The operator that is on the right side 
+	 * @return the most restricting operator from up the tree
+	 */
+	private Operator findMostRestrictingRight (int op) {
+		return findMostRestricting(op, 0);
+	}
+	
+	/**
+	 * Generic function used by findMosrRestricitingLeft and findMostRestrictingRight
+	 */
+	private Operator findMostRestricting(int opCount, int n) {
+		int min = opCount;
+		Operator mostRestricting = null;
+		
+		for (int i = 0; i < this.subtreeList.size() - n; i++) {
+			Operator tempOp = this.subtreeList.get(i);
+			
+			if (tempOp.getOutput().getTupleCount() < min) {
+				min = tempOp.getOutput().getTupleCount();
+				mostRestricting = tempOp;
+			}
+		}
+		
+		if (mostRestricting !=null) {
+			this.subtreeList.remove(mostRestricting);
+		}
+		
+		return mostRestricting;
+	}
+	
+	private List<Attribute> findReorderedAttrs (Operator plan) {
+		if (plan instanceof Scan) {
+			Scan opCast = (Scan) plan;
+			return opCast.getRelation().getAttributes();
+		} 
+		else {
+			List<Operator> children = plan.getInputs();
+			
+			if (children.size() > 1) {
+				System.err.println("I have reordered a tree that has a product somewhere below");
+			}
+			
+			return findReorderedAttrs(children.get(0));
 		}
 	}
 }
